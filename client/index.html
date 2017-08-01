@@ -1,0 +1,106 @@
+<canvas id="ctx" oncontextmenu="return false;" width = "1000" height = "800" style="border:1px solid #000000;"></canvas>
+
+<div id="chat-text" style="width:500px;height:100px;overflow-y:scroll">
+	<div></div>
+</div>
+
+<form id="chat-form">
+	<input id="chat-input" type="text" style="width:500px"></input>
+</form>
+
+
+
+<script src="https://cdn.socket.io/socket.io-1.4.5.js"></script>
+
+<script>
+
+
+	//// Chat
+	var chatText = document.getElementById("chat-text");
+	var chatInput = document.getElementById("chat-input");
+	var chatForm = document.getElementById("chat-form");
+
+	//// Canvas
+	var ctx = document.getElementById("ctx").getContext("2d");
+
+	var socket = io();
+	
+	ctx.font = "20px Arial";
+
+	socket.on("newPosition",function(data){	
+		ctx.clearRect(0,0,1000, 800);
+		for(var i in data.player){
+			ctx.fillText(data.player[i].number,data.player[i].x,data.player[i].y);
+		}
+
+		for(var i in data.bullet){
+			ctx.fillRect(data.bullet[i].x-5, data.bullet[i].y-5,10,10);
+		}
+		
+	})
+
+	socket.on("addToChat",function(data){
+		chatText.innerHTML += "<div>" + data + "</div>";
+		chatText.scrollTop = chatText.scrollHeight;
+	});
+
+	socket.on("evalAnswer",function(data){
+		console.log(data);
+		chatInput.value = "";
+	});
+
+	chatForm.onsubmit = function(e){
+	e.preventDefault(); // Prevents page refresh on enter
+
+	//Debug commands
+	if(chatInput.value[0] ===  "/"){
+		socket.emit("evalServer",chatInput.value.slice(1));
+	}
+	else{ //Normal chat
+		socket.emit("sendMsgToServer",chatInput.value);
+		chatInput.value = "";
+	}
+}
+
+document.onkeydown = function(event){
+	var input;
+		if(event.keyCode === 87) // W
+			input = "up";		
+		else if(event.keyCode === 83) // S
+			input = "down";
+		else if(event.keyCode === 65) // A
+			input = "left";
+		else if(event.keyCode === 68) // D
+			input = "right";					
+		socket.emit("keyPress",{inputId:input,state:true});
+	}
+
+	document.onkeyup = function(event){
+		var input;
+		if(event.keyCode === 87) // W
+			input = "up";		
+		else if(event.keyCode === 83) // S
+			input = "down";
+		else if(event.keyCode === 65) // A
+			input = "left";
+		else if(event.keyCode === 68) // D
+			input = "right";					
+		socket.emit("keyPress",{inputId:input,state:false});
+	}
+
+
+	document.onmousedown = function(event){
+		socket.emit("keyPress",{inputId:"shoot",state:true});
+	}
+	document.onmouseup = function(event){
+		socket.emit("keyPress",{inputId:"shoot",state:false});
+	}
+
+	document.onmousemove = function(event){		
+		var x = -500 + event.clientX -8;
+		var y = -500 + event.clientY -8;
+		var angle = Math.atan2(y,x) / Math.PI*180;
+		socket.emit("keyPress",{inputId:"mouseAngle",state:angle});
+	}
+</script>
+
