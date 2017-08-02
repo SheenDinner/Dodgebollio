@@ -14,56 +14,211 @@
 
 <script>
 
-
-	//// Chat
-	var chatText = document.getElementById("chat-text");
-	var chatInput = document.getElementById("chat-input");
-	var chatForm = document.getElementById("chat-form");
+	var socket = io();
 
 	//// Canvas
 	var ctx = document.getElementById("ctx").getContext("2d");
-
-	var socket = io();
-	
 	ctx.font = "20px Arial";
+	ctx.strokeStyle = "#00000";
+	ctx.fillStyle = "#000000";
+	
+	var WIDTH = 1000; //Viewport
+	var HEIGHT = 800;
+	var ARENA_WIDTH = 4000;
+	var ARENA_HEIGHT = 4000;
 
-	socket.on("newPosition",function(data){	
-		ctx.clearRect(0,0,1000, 800);
+	drawMap = function(){
+
+		
+		
+		var x = WIDTH/2 - Player.list[selfId].x;
+		var y = HEIGHT/2 - Player.list[selfId].y;
+
+		//Background
+		ctx.fillStyle = "#efeff5";
+		ctx.fillRect(0,0,WIDTH,HEIGHT);
+
+		//Draw Grid
+		ctx.lineWidth = 2;
+		ctx.strokeStyle = "#e4e4ea";		
+		for(var i = x - ARENA_WIDTH/2; i <= x + ARENA_WIDTH/2 ; i+=40){
+			ctx.beginPath();
+			ctx.moveTo(i, y - ARENA_HEIGHT/2);
+			ctx.lineTo(i,y + ARENA_HEIGHT/2);
+			ctx.stroke();
+		}
+
+		for(var i = y - ARENA_HEIGHT/2; i <= y + ARENA_HEIGHT/2 ; i+=40){
+			ctx.beginPath();
+			ctx.moveTo(x -ARENA_WIDTH/2, i);
+			ctx.lineTo(x + ARENA_WIDTH/2,i);
+			ctx.stroke();
+		}
+
+		//Draw Borders
+		ctx.lineWidth = 25;
+		ctx.strokeStyle = "#202020"
+		ctx.rect(x - ARENA_WIDTH/2,y - ARENA_HEIGHT/2,ARENA_WIDTH,ARENA_HEIGHT);
+		ctx.stroke();
+
+}
+
+	//// Client State
+
+	// Init - Packages sent when new stuff is created, contains all the data
+	var Player = function(initPack){
+		var self = {};
+		self.id = initPack.id;
+		self.number = initPack.number;
+		self.x = initPack.x;
+		self.y = initPack.y;
+		self.hp = initPack.hp;
+		self.hpMax = initPack.hpMax;
+		self.score = initPack.score;
+		
+		self.lineWidth = 5;
+		self.radius = 30;
+
+		self.draw = function(){
+			var x = self.x - Player.list[selfId].x + WIDTH/2;
+			var y = self.y - Player.list[selfId].y + HEIGHT/2;
+
+			var hpWidth = 40 * self.hp / self.hpMax;
+
+			// Health bar
+			ctx.save();
+			ctx.fillStyle = "red";
+			ctx.fillRect(x-hpWidth/2, y - 42, hpWidth, 6);
+			ctx.restore();
+
+			// Player
+			ctx.save();
+			ctx.beginPath();
+			ctx.arc(x, y, self.radius - self.lineWidth/2, 0, 2*Math.PI);
+			ctx.fillStyle = "#85d65c";
+			ctx.strokeStyle = "#52a329";
+			ctx.lineWidth = self.lineWidth;
+			ctx.fill();
+			ctx.stroke();
+			ctx.closePath();
+			ctx.restore();
+		}
+		Player.list[self.id] = self;
+		return self;
+	}
+	Player.list = {};
+
+	var Bullet = function(initPack){
+		var self = {};
+		self.id = initPack.id;
+		self.x = initPack.x;
+		self.y = initPack.y;
+		
+		self.lineWidth = 2;
+		self.radius = 15;
+
+		self.draw = function(){		
+			var x = self.x - Player.list[selfId].x + WIDTH/2;
+			var y = self.y - Player.list[selfId].y + HEIGHT/2;
+
+			ctx.save();
+			ctx.beginPath();
+			ctx.arc(x, y, self.radius - self.lineWidth/2, 0, 2*Math.PI);
+			ctx.fillStyle = "#505050";
+			ctx.strokeStyle = "#101010";
+			ctx.lineWidth = self.lineWidth;
+			ctx.fill();
+			ctx.stroke();
+			ctx.closePath();
+			ctx.restore();
+		}
+		Bullet.list[self.id] = self;
+		return self;
+	}
+	Bullet.list = {};
+
+	var selfId = null;	
+	socket.on("init",function(data){			
+		if(data.selfId !== undefined){
+			selfId = data.selfId;			
+		}
+
 		for(var i in data.player){
-			ctx.fillText(data.player[i].number,data.player[i].x,data.player[i].y);
+			new Player(data.player[i]);
 		}
 
 		for(var i in data.bullet){
-			ctx.fillRect(data.bullet[i].x-5, data.bullet[i].y-5,10,10);
+			new Bullet(data.bullet[i]);
+		}		
+	});
+
+	// Update - Packages contains only the changes/differences in data
+	socket.on("update",function(data){	
+	//Example package - {player:[{id:123,x:0,y:0},{id:1,x:5,y:5}], bullet: []}		
+	for(var i in data.player){
+		var pack = data.player[i];
+		var p = Player.list[pack.id];
+			if(p){ // Check if entity exists in case of desynch/bug
+				if(pack.x !== undefined)
+					p.x = pack.x;
+				if(pack.y !== undefined)
+					p.y = pack.y;
+				if(pack.hp !== undefined)
+					p.hp = pack.hp;
+				if(pack.score !== undefined)
+					p.score = pack.score;
+				
+			}
+		}
+		for(var i in data.bullet){
+			var pack = data.bullet[i];
+			var b = Bullet.list[pack.id];
+			if(b){ // Check if entity exists in case of desynch/bug
+				if(pack.x !== undefined)
+					b.x = pack.x;
+				if(pack.y !== undefined)
+					b.y = pack.y;
+			}
 		}
 		
-	})
-
-	socket.on("addToChat",function(data){
-		chatText.innerHTML += "<div>" + data + "</div>";
-		chatText.scrollTop = chatText.scrollHeight;
 	});
 
-	socket.on("evalAnswer",function(data){
-		console.log(data);
-		chatInput.value = "";
+
+	// Remove - Tell client to remove objects with given IDs
+	socket.on("remove",function(data){
+		//Example package - {player:[12345],bullet:[15265,26362]}
+		for(var i in data.player){
+			delete Player.list[data.player[i]];
+		}
+
+		for(var i in data.bullet){
+			delete Bullet.list[data.bullet[i]];
+		}
 	});
 
-	chatForm.onsubmit = function(e){
-	e.preventDefault(); // Prevents page refresh on enter
 
-	//Debug commands
-	if(chatInput.value[0] ===  "/"){
-		socket.emit("evalServer",chatInput.value.slice(1));
-	}
-	else{ //Normal chat
-		socket.emit("sendMsgToServer",chatInput.value);
-		chatInput.value = "";
-	}
-}
 
-document.onkeydown = function(event){
-	var input;
+
+	// Paint objects
+	setInterval(function(){
+		if(selfId == null){return;}	
+
+		drawMap();				
+		for(var i in Player.list){
+			Player.list[i].draw();
+		}
+
+		for(var i in Bullet.list){
+			Bullet.list[i].draw();
+		}
+
+	},10);
+
+
+	//// Player Input
+	document.onkeydown = function(event){
+		//console.log("X: " + Player.list[selfId].x + ", Y: " + Player.list[selfId].y);
+		var input;
 		if(event.keyCode === 87) // W
 			input = "up";		
 		else if(event.keyCode === 83) // S
@@ -90,17 +245,47 @@ document.onkeydown = function(event){
 
 
 	document.onmousedown = function(event){
-		socket.emit("keyPress",{inputId:"shoot",state:true});
+		socket.emit("keyPress",{inputId:"shoot",state:true});		
 	}
 	document.onmouseup = function(event){
 		socket.emit("keyPress",{inputId:"shoot",state:false});
 	}
 
 	document.onmousemove = function(event){		
-		var x = -500 + event.clientX -8;
-		var y = -500 + event.clientY -8;
-		var angle = Math.atan2(y,x) / Math.PI*180;
+		var x = -(WIDTH/2) + event.clientX -8;
+		var y = -(HEIGHT/2) + event.clientY -8;
+		var angle = Math.atan2(y,x) / Math.PI*180;		
 		socket.emit("keyPress",{inputId:"mouseAngle",state:angle});
 	}
+
+	//// Chat
+	var chatText = document.getElementById("chat-text");
+	var chatInput = document.getElementById("chat-input");
+	var chatForm = document.getElementById("chat-form");
+
+	socket.on("addToChat",function(data){
+		chatText.innerHTML += "<div>" + data + "</div>";
+		chatText.scrollTop = chatText.scrollHeight;
+	});
+
+	socket.on("evalAnswer",function(data){
+		console.log(data);
+		chatInput.value = "";
+	});
+
+	chatForm.onsubmit = function(e){
+		e.preventDefault(); // Prevents page refresh on enter
+
+		//Debug commands
+		if(chatInput.value[0] ===  "/"){
+			socket.emit("evalServer",chatInput.value.slice(1));
+		}
+		else{ //Normal chat
+			socket.emit("sendMsgToServer",chatInput.value);
+			chatInput.value = "";
+		}
+	}
+
+
 </script>
 
